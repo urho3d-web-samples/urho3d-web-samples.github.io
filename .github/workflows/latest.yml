@@ -1,0 +1,65 @@
+# Данный workflow компилирует веб-версии примеров Urho3D и публикует их на сайте
+
+# Отображаемое имя workflow
+# https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#name
+name: "Компиляция веб-версий примеров"
+
+on:
+  # Данный workflow запускается вручную
+  # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#manual-events
+  # Ручной запуск можно было бы симулировать из репозитория Urho3D, но нужно вписать туда токен
+  # https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event
+  workflow_dispatch:
+
+# Глобальная переменная
+# https://docs.github.com/en/actions/learn-github-actions/environment-variables
+env:
+  RESULT_DIR: latest
+
+jobs:
+  # Идентификатор job
+  # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_id
+  Emscripten:
+    # Будет запущен на виртуальной машине с последней версией Ubuntu
+    # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idruns-on
+    runs-on: ubuntu-22.04
+
+    # Отображаемое имя job 
+    # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idname
+    name: Работаем
+
+    # Последовательность задач
+    # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idsteps
+    steps:
+
+    - name: Работаем # Отображаемое имя step
+      run: |
+
+        git config --global user.email "urho3d[bot]@users.noreply.github.com"
+        git config --global user.name "urho3d[bot]"
+
+        # Качаем репозиторий
+        git clone https://github.com/urho3d/Urho3D engine_repo
+
+        git clone --depth 1 https://github.com/emscripten-core/emsdk.git
+        ./emsdk/emsdk install 3.1.17
+        ./emsdk/emsdk activate 3.1.17
+        chmod +x ./emsdk/emsdk_env.sh
+        ./emsdk/emsdk_env.sh
+        TOOLCHAIN=$PWD/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake
+        cmake engine_repo -B engine_build -G "Unix Makefiles" \
+          -D WEB=1 -D CMAKE_TOOLCHAIN_FILE=${TOOLCHAIN} \
+          -D EMSCRIPTEN_SHARE_DATA=1 -D URHO3D_DATABASE_SQLITE=1 \
+          -D CMAKE_BUILD_TYPE=Release
+        cmake --build engine_build
+
+        git clone https://github.com/${{github.repository}} this_repo # Качаем репозиторий
+
+        rm -rf this_repo/$RESULT_DIR # Удаляем директорию, если существует
+        mkdir this_repo/$RESULT_DIR
+        cp -a engine_build/bin/. this_repo/$RESULT_DIR # Копируем содержимое папки
+
+        cd this_repo
+        git add -A
+        git commit -m "Обновление примеров в $RESULT_DIR" || : # Создаём коммит и перехватываем ошибку, если в репозитории нет изменений
+        git push https://.:${{github.token}}@github.com/${{github.repository}}
